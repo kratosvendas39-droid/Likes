@@ -251,337 +251,66 @@ async function startBot() {
                     db.grupos[from].publico = false; saveDB(db); reply('🔒 Grupo PRIVADO.')
                     break
 
-case 'like': {
-    try {
+                case 'like': {
+                    const idL = args[0]
+                    if (!idL) return reply('❌ Informe o ID.')
 
-        const idJogador = args[0]
+                    if (!grupo.publico && !isVip) {
+                        return reply("🔒 *ENVIO RESTRITO*\nApenas usuários VIP podem usar o comando de likes neste grupo privado.")
+                    }
 
-        if (!idJogador || isNaN(idJogador)) {
-            return reply(
-                '📜 *PERGAMINHO DE ALERTA*\n\n' +
-                '❌ *ID inválido!*\n' +
-                '📌 Exemplo: /like 1983269508'
-            )
-        }
+                    reply('⏳ Processando Likes...')
+                    try {
+                        const { data } = await axios.get(`${API_URL_LIKE}${idL}`)
 
-        await reply(
-            '🔍 *Consultando perfil e preparando envio de likes...*'
-        )
+                        let exibirVip = "GRÁTIS (MODO PÚBLICO)"
+                        if (isDono) exibirVip = "INFINITO"
+                        else if (isVip) exibirVip = (db.vips[sender].ids - 1)
 
-        // =========================================
-        // API INFO
-        // =========================================
+                        if (data.status === "success" && !grupo.publico && !isDono && isVip) {
+                            db.vips[sender].ids--
+                        }
 
-        const urlInfo =
-            `https://likesff-info.squareweb.app/check_basic?id=${idJogador}`
+                        // ====== LÓGICA DO CONTADOR DIÁRIO ======
+                        const dataHoje = new Date().toLocaleDateString('pt-BR')
+                        if (!db.estatisticasDiarias || db.estatisticasDiarias.data !== dataHoje) {
+                            db.estatisticasDiarias = { data: dataHoje, totalLikes: 0 }
+                        }
 
-        const respostaInfo = await axios.get(urlInfo, {
-            timeout: 15000
-        }).catch(() => null)
+                        if (data.status === "success") {
+                            db.estatisticasDiarias.totalLikes++
+                        }
+                        saveDB(db)
+                        // =======================================
 
-        if (
-            !respostaInfo ||
-            !respostaInfo.data
-        ) {
-            return reply(
-                '❌ Não foi possível localizar o jogador.'
-            )
-        }
+                        const limiteDiario = 100
+                        const usadosHoje = db.estatisticasDiarias.totalLikes
+                        const modoGrupo = grupo.publico ? 'PÚBLICO 🔓' : 'PRIVADO 🔐'
+                        const adicionado = data.status === "success" ? "SIM" : "NÃO"
+                        const resultado = data.status === "success" ? "✅ Likes enviados com sucesso" : "❌ Falha no envio"
 
-        const dados = respostaInfo.data
+                        const painelLike = `🔥 *PAINEL LIKES - ${T.nome}* 🔥\n\n` +
+                                           `👤 *Nick:* ${data.nickname || 'Não encontrado'}\n` +
+                                           `🆔 *ID:* ${data.id}\n\n` +
+                                           `📊 *Likes Antes:* ${data.likes_before || '0'}\n` +
+                                           `✨ *Likes Adicionados:* ${data.likes_added || '0'}\n` +
+                                           `🏆 *Likes Total:* ${data.likes_end || '0'}\n\n` +
+                                           `🔑 *Envios Diários:* \n` +
+                                           `${usadosHoje}/${limiteDiario}\n\n` +
+                                           `⭐ *Envios Restantes (VIP):* ${exibirVip}\n` +
+                                           `📥 *Key adicionada:* ${adicionado}\n\n` +
+                                           `📢 *Status:* \n` +
+                                           `${data.message || 'Sem mensagem da API'}\n` +
+                                           `━━━━━━━━━━━━━━━\n\n` +
+                                           `📡 *Resultado:* \n` +
+                                           `${resultado}\n\n` +
+                                           `🔐 *Modo:* ${modoGrupo}`
 
-        // =========================================
-        // API LIKE
-        // =========================================
-
-        const urlLike =
-            `https://likesff.online/api/LIKE?key=LIKESFF-KLFF-KRATOSLIKESEPASSES&id=${idJogador}`
-
-        const respostaLike = await axios.get(
-            urlLike,
-            {
-                timeout: 20000
-            }
-        ).catch(() => null)
-
-        if (
-            !respostaLike ||
-            !respostaLike.data
-        ) {
-            return reply(
-                '❌ A API de likes não respondeu.'
-            )
-        }
-
-        const dadosLike = respostaLike.data
-
-        console.log(
-            'RETORNO API LIKE:',
-            dadosLike
-        )
-
-        // =========================================
-        // DADOS PERFIL
-        // =========================================
-
-        const nickJogador =
-            dadosLike.nickname ||
-            dados.nickname ||
-            dados.name ||
-            'Desconhecido'
-
-        const regiao =
-            dadosLike.region ||
-            dados.region ||
-            'N/A'
-
-        const nivelJogador =
-            dadosLike.level ||
-            dados.level ||
-            'N/A'
-
-        const xpJogador =
-            dadosLike.xp ||
-            dados.exp ||
-            dados.xp ||
-            'N/A'
-
-        const primeLevel =
-            dadosLike.prime_level || 0
-
-        // =========================================
-        // BIO
-        // =========================================
-
-        let bioRaw =
-            dadosLike.bio ||
-            dados.signature ||
-            dados.bio ||
-            dados.assinatura ||
-            ''
-
-        let bioJogador = 'Sem assinatura'
-
-        if (bioRaw && bioRaw.trim().length > 0) {
-
-            if (
-                /^[0-9a-fA-F]+$/.test(bioRaw.trim()) &&
-                bioRaw.length > 4
-            ) {
-                try {
-                    bioRaw = Buffer
-                        .from(bioRaw.trim(), 'hex')
-                        .toString('utf-8')
-                } catch (e) {
-                    console.log(
-                        'Erro HEX BIO:',
-                        e.message
-                    )
+                        reply(painelLike)
+                    } catch { reply('❌ Erro na API de Likes.') }
+                    break
                 }
-            }
 
-            bioJogador = bioRaw
-                .replace(/\[[0-9a-fA-F]{6}\]/g, '')
-                .replace(/\[\/?[^\]]+\]/g, '')
-                .trim()
-
-            if (!bioJogador.length) {
-                bioJogador = 'Sem assinatura'
-            }
-        }
-
-        // =========================================
-        // DADOS REAIS API
-        // =========================================
-
-        const likesAntes = parseInt(
-            dadosLike.likes_before || 0
-        )
-
-        const likesDepois = parseInt(
-            dadosLike.likes_end || likesAntes
-        )
-
-        const likesAdicionados = parseInt(
-            dadosLike.likes_added || 0
-        )
-
-        const likesFalharam = parseInt(
-            dadosLike.likes_failed || 0
-        )
-
-        const apiMessage =
-            dadosLike.message || 'N/A'
-
-        const releaseVersion =
-            dadosLike.release_version || 'N/A'
-
-        const keyInfo =
-            dadosLike.key || 'N/A'
-
-        const keyRemaining =
-            dadosLike.key_remaining || 0
-
-        const keyAdded =
-            dadosLike.key_added
-                ? 'SIM'
-                : 'NÃO'
-
-        const keyMessage =
-            dadosLike.key_message || 'N/A'
-
-        const likesRequired =
-            dadosLike.likes_required || 0
-
-        const requestTime =
-            dadosLike.likes_request_time || '0'
-
-        const loginPrimary =
-            dadosLike.login_primary_formatted || 'N/A'
-
-        const loginEnd =
-            dadosLike.login_end_formatted || 'N/A'
-
-        // =========================================
-        // STATUS FINAL
-        // =========================================
-
-        let statusEnvio = ''
-        let resultadoTexto = ''
-
-        if (likesAdicionados > 0) {
-
-            statusEnvio = 'LIKES_SUCCESS'
-
-            resultadoTexto =
-                `✅ Likes enviados com sucesso!\n` +
-                `🎉 ${likesAdicionados} likes adicionados.`
-
-        } else if (
-            apiMessage.includes('LIMIT')
-        ) {
-
-            statusEnvio = 'LIMIT_24H'
-
-            resultadoTexto =
-                '❌ Este jogador já recebeu o limite diário de likes.\n' +
-                '🕒 Aguarde o reset da Garena para tentar novamente.\n\n' +
-                `🚫 Likes recusados: ${likesFalharam}`
-
-        } else if (
-            likesFalharam > 0 &&
-            likesAdicionados === 0
-        ) {
-
-            statusEnvio = 'GARAGE_BLOCK'
-
-            resultadoTexto =
-                '⚠️ A Garena bloqueou os likes deste jogador.\n' +
-                `🚫 Likes recusados: ${likesFalharam}`
-
-        } else {
-
-            statusEnvio = 'API_REFUSED'
-
-            resultadoTexto =
-                '❌ A API recusou o envio.'
-        }
-
-        // =========================================
-        // DB STATUS
-        // =========================================
-
-        if (!db.status_api) {
-            db.status_api = {
-                envios_hoje: 0,
-                ultima_data: ''
-            }
-        }
-
-        const dataHoje = new Date()
-            .toISOString()
-            .slice(0, 10)
-
-        if (
-            db.status_api.ultima_data !== dataHoje
-        ) {
-            db.status_api.envios_hoje = 0
-            db.status_api.ultima_data = dataHoje
-        }
-
-        if (likesAdicionados > 0) {
-            db.status_api.envios_hoje += 1
-        }
-
-        const totalEnvios =
-            db.status_api.envios_hoje
-
-        // =========================================
-        // MENSAGEM FINAL
-        // =========================================
-
-        let txt = ''
-
-        txt += `📜 ━━━━━━━━━━━━━━━━━━━\n`
-        txt += `🔥 *KRATOS LIKES PANEL* 🔥\n`
-        txt += `━━━━━━━━━━━━━━━━━━━\n\n`
-
-        txt += `👤 *Nick:* ${nickJogador}\n`
-        txt += `🆔 *ID:* ${idJogador}\n`
-        txt += `🌎 *Região:* ${regiao}\n`
-        txt += `🎖️ *Nível:* ${nivelJogador}\n`
-        txt += `💎 *Prime Level:* ${primeLevel}\n`
-        txt += `✨ *XP:* ${xpJogador}\n`
-        txt += `✍️ *Bio:* ${bioJogador}\n\n`
-
-        txt += `📊 *Likes Antes:* ${likesAntes}\n`
-        txt += `💖 *Likes Depois:* ${likesDepois}\n`
-        txt += `🚀 *Likes Adicionados:* ${likesAdicionados}\n`
-        txt += `❌ *Likes Falharam:* ${likesFalharam}\n\n`
-
-        txt += `📡 *Status:* ${statusEnvio}\n`
-        txt += `📥 *Resultado:*\n${resultadoTexto}\n\n`
-
-        txt += `🛠️ *Versão API:* ${releaseVersion}\n`
-        txt += `🔑 *Key:* ${keyInfo}\n`
-        txt += `📦 *Key Restante:* ${keyRemaining}\n`
-        txt += `➕ *Key Adicionada:* ${keyAdded}\n`
-        txt += `📄 *Mensagem Key:* ${keyMessage}\n`
-        txt += `🎯 *Likes Necessários:* ${likesRequired}\n`
-        txt += `⚡ *Tempo Request:* ${requestTime}s\n\n`
-
-        txt += `🕒 *Primeiro Login:* ${loginPrimary}\n`
-        txt += `🕒 *Último Login:* ${loginEnd}\n\n`
-
-        txt += `📅 *Envios Hoje:* ${totalEnvios}\n`
-        txt += `🔐 *Modo:* Público\n\n`
-
-        txt += `📜 ━━━━━━━━━━━━━━━━━━━`
-
-        await sock.sendMessage(
-            from,
-            {
-                text: txt
-            },
-            {
-                quoted: msg
-            }
-        )
-
-    } catch (err) {
-
-        console.log(
-            'ERRO CASE LIKE:',
-            err
-        )
-
-        reply(
-            '❌ Ocorreu um erro ao processar os likes.'
-        )
-    }
-
-    break
-}
                 case 'pass': {
                     const idP = args[0]
                     if (!idP) return reply('❌ Informe o ID.')
@@ -806,73 +535,73 @@ case 'like': {
                         const path = require('path')
                         const fs = require('fs')
 
-                        // Captura a mensagem direta ou marcada (quoted) sem cortes na linha
+                        // Captura a mensagem direta ou a mensagem que foi marcada (quoted)
                         const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage
-                        const mensagemReal = quoted || msg.message
+                        const msgReal = quoted || msg.message
 
-                        if (!mensagemReal) return reply('⚠️ Você precisa *marcar ou enviar* uma imagem, GIF ou vídeo curto!')
+                        if (!msgReal) return reply('⚠️ Envie ou marque uma imagem, GIF ou vídeo curto!')
 
-                        // Verifica se a mídia é imagem ou vídeo/gif (incluindo mídias de visualização única)
-                        const isImage = mensagemReal?.imageMessage || mensagemReal?.viewOnceMessage?.message?.imageMessage || mensagemReal?.viewOnceMessageV2?.message?.imageMessage
-                        const isVideo = mensagemReal?.videoMessage || mensagemReal?.viewOnceMessage?.message?.videoMessage || mensagemReal?.viewOnceMessageV2?.message?.videoMessage
+                        // Mapeia todas as possíveis origens de imagem e vídeo do WhatsApp (incluindo mídias temporárias/únicas)
+                        const imgMessage = msgReal.imageMessage || msgReal.viewOnceMessage?.message?.imageMessage || msgReal.viewOnceMessageV2?.message?.imageMessage
+                        const vidMessage = msgReal.videoMessage || msgReal.viewOnceMessage?.message?.videoMessage || msgReal.viewOnceMessageV2?.message?.videoMessage
 
-                        if (!isImage && !isVideo) {
+                        if (!imgMessage && !vidMessage) {
                             return reply('⚠️ Você precisa *marcar ou enviar* uma imagem, GIF ou vídeo curto!')
                         }
 
-                        reply('🔮 *Transmutando mídia em figurinha...* ⏳')
+                        reply('🔮 *Transmutando mídia em figurinha animada...* ⏳')
 
-                        // Define o tipo de mídia e baixa o buffer correto do Baileys
-                        const tipoMidia = isImage ? 'image' : 'video'
-                        const infoMensagem = isImage || isVideo
+                        // Define os parâmetros de download com base no tipo real da mídia
+                        const isAnimated = !!vidMessage
+                        const tipoMidia = isAnimated ? 'video' : 'image'
+                        const infoDownload = imgMessage || vidMessage
 
-                        const stream = await downloadContentFromMessage(infoMensagem, tipoMidia)
+                        const stream = await downloadContentFromMessage(infoDownload, tipoMidia)
                         let buffer = Buffer.from([])
                         for await (const chunk of stream) {
                             buffer = Buffer.concat([buffer, chunk])
                         }
 
-                        // Configura caminhos temporários locais limpos
-                        const extensaoEntrada = isImage ? 'jpg' : 'mp4'
-                        const arquivoEntrada = path.join(process.cwd(), `temp_${sender}.${extensaoEntrada}`)
+                        // Configura caminhos e extensões temporárias no Termux
+                        const extEntrada = isAnimated ? 'mp4' : 'jpg'
+                        const arquivoEntrada = path.join(process.cwd(), `temp_${sender}.${extEntrada}`)
                         const arquivoSaidaWebp = path.join(process.cwd(), `temp_${sender}.webp`)
 
                         fs.writeFileSync(arquivoEntrada, buffer)
 
-                        // Monta o comando do FFmpeg baseado no tipo de mídia
                         let comandoFfmpeg = ''
-                        if (isImage) {
-                            // Filtro para imagem: Mantém proporção e adiciona fundo transparente
+                        if (!isAnimated) {
+                            // Filtro estático: redimensiona e centraliza com fundo transparente
                             comandoFfmpeg = `ffmpeg -i "${arquivoEntrada}" -vcodec libwebp -filter_complex "scale='if(gt(a,1),512,-1)':'if(gt(a,1),-1,512)',pad=512:512:(512-iw)/2:(512-ih)/2:color=white@0" -y "${arquivoSaidaWebp}"`
                         } else {
-                            // Filtro corrigido para FFmpeg v8+: Usa -fps_mode cfr no lugar do descontinuado -vsync
-                            comandoFfmpeg = `ffmpeg -i "${arquivoEntrada}" -vcodec libwebp -filter_complex "scale=512:512:flags=lanczos,pad=512:512:(512-iw)/2:(512-ih)/2:color=white@0" -r 15 -fps_mode cfr -loop 0 -an -y "${arquivoSaidaWebp}"`
+                            // Filtro animado crucial: limita frames (-r 15), remove áudio (-an), força resolução e loop infinito (-loop 0)
+                            comandoFfmpeg = `ffmpeg -i "${arquivoEntrada}" -vcodec libwebp -filter_complex "scale=512:512:flags=lanczos" -r 15 -loop 0 -an -vsync 0 -preset default -y "${arquivoSaidaWebp}"`
                         }
 
                         exec(comandoFfmpeg, async (erro) => {
                             if (erro) {
-                                console.log("Erro FFmpeg:", erro)
-                                reply('❌ Erro no processamento interno da mídia.')
+                                console.log("Erro no FFmpeg:", erro)
+                                reply('❌ O formato deste GIF/Vídeo não é suportado pelo codificador local.')
                                 if (fs.existsSync(arquivoEntrada)) fs.unlinkSync(arquivoEntrada)
                                 return
                             }
 
                             if (!fs.existsSync(arquivoSaidaWebp)) {
                                 if (fs.existsSync(arquivoEntrada)) fs.unlinkSync(arquivoEntrada)
-                                return reply('❌ Erro ao gerar o arquivo final da figurinha.')
+                                return reply('❌ Falha ao processar o arquivo final da animação.')
                             }
 
-                            // Envia o arquivo WebP gerado como figurinha nativa do WhatsApp
+                            // Envia a figurinha (estática ou em loop animado) diretamente no chat
                             await sock.sendMessage(from, { sticker: fs.readFileSync(arquivoSaidaWebp) }, { quoted: msg })
 
-                            // Limpa o lixo temporário do Termux para poupar o armazenamento do celular
+                            // Limpeza automática de lixo do sistema do celular
                             if (fs.existsSync(arquivoEntrada)) fs.unlinkSync(arquivoEntrada)
                             if (fs.existsSync(arquivoSaidaWebp)) fs.unlinkSync(arquivoSaidaWebp)
                         })
 
                     } catch (err) {
-                        console.log("Erro interno sticker:", err)
-                        reply('❌ Falha ao processar a figurinha.')
+                        console.log("Erro estrutural sticker:", err)
+                        reply('❌ Erro inesperado ao criar a figurinha.')
                     }
                     break
                 }
@@ -939,169 +668,118 @@ case 'like': {
                 }
 
                 case 'ia': {
-                    const textoPrompt = args.join(' ')
-                    if (!textoPrompt) return reply('❌ Digite uma pergunta ou pedido para a Inteligência Artificial.\n\n📌 *Exemplo:* _/ia dicas para melhorar o capa no ff_')
+                    const pergunta = args.join(' ')
+                    if (!pergunta) return reply('❌ Por favor, digite uma pergunta para a IA.\n\n📌 Exemplo: */ia crie um texto de vendas para o grupo*')
 
                     reply('🤖 *Kratos IA está processando...* ⏳')
                     try {
-                        const sistemaPersona = "Você é a Kratos IA, inteligência artificial oficial do bot Kratos Store no WhatsApp. Responda de forma direta, clara e inteligente em português."
+                        const GEMINI_API_KEY = 'AIzaSyD7zlHbgOxwA-El2DLmbmYsTuzc4Bw2lK8' 
+                        const urlGemini = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`
 
-                        // MOTOR NOVO: API da HuggingFace/Router (Livre de bloqueios 429 de IP)
-                        const urlNovaIA = 'https://api-inference.huggingface.co/models/01-ai/Yi-1.5-34B-Chat'
-                        
                         const corpoDados = {
-                            inputs: `<|im_start|>system\n${sistemaPersona}<|im_end|>\n<|im_start|>user\n${textoPrompt}<|im_end|>\n<|im_start|>assistant\n`,
-                            parameters: { max_new_tokens: 300, temperature: 0.7 }
+                            contents: [{
+                                parts: [{
+                                    text: pergunta
+                                }]
+                            }]
                         }
 
-                        const { data } = await axios.post(urlNovaIA, corpoDados, {
-                            headers: { 'Content-Type': 'application/json' },
-                            timeout: 12000
+                        const { data } = await axios.post(urlGemini, corpoDados, {
+                            headers: { 'Content-Type': 'application/json' }
                         })
 
-                        // Limpa a resposta para entregar apenas o texto puro do modelo
-                        let respostaTexto = '';
-                        if (Array.isArray(data) && data[0]?.generated_text) {
-                            respostaTexto = data[0].generated_text.split('<|im_start|>assistant\n')[1] || data[0].generated_text
-                        } else if (data?.generated_text) {
-                            respostaTexto = data.generated_text
-                        }
+                        const respostaIA = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Não consegui formular uma resposta.'
 
-                        if (!respostaTexto) {
-                            // PLANO B SEGURO: Usando um espelho direto sem autenticação do Llama 3
-                            const resFallback = await axios.post('https://nexra.aryahcr.cc/api/image/comfyanon', {
-                                prompt: textoPrompt, model: "llama"
-                            }, { timeout: 8000 }).catch(() => null)
-                            
-                            respostaTexto = resFallback?.data?.gpt || resFallback?.data?.text
-                        }
+                        const layoutIA = `🤖 *ASSISTENTE GEMINI - ${T.nome}* 🤖\n\n` +
+                                         `💬 *Pergunta:* _${pergunta}_\n\n` +
+                                         `💡 *Resposta:*\n${respostaIA.trim()}\n\n` +
+                                         `━━━━━━━━━━━━━━━\n` +
+                                         `⚙️ _Tecnologia Gemini 3 Flash_`
 
-                        if (!respostaTexto || respostaTexto.trim().length === 0) {
-                            return reply('❌ Servidor congestionado. Tente novamente em instantes.')
-                        }
-
-                        return reply(respostaTexto.replace(/<\|im_end\|>/g, '').trim())
-
+                        reply(layoutIA)
                     } catch (err) {
-                        console.log("Erro no Comando IA:", err.message)
-                        
-                        // PLANO C - ESCAPE RÁPIDO PARA O BOT NÃO FICAR EM SILÊNCIO
-                        try {
-                            const promptSimples = encodeURIComponent(textoPrompt)
-                            const resReserva = await axios.get(`https://api.simsimi.net/v2/?text=${promptSimples}&lc=pt`)
-                            if (resReserva.data?.success) {
-                                return reply(resReserva.data.success)
-                            }
-                        } catch {}
-
-                        reply('❌ As rotas de IA atingiram o limite global. Aguarde um momento e reenvie.')
+                        reply('❌ Erro ao processar o seu pedido com a IA. Tente novamente mais tarde.')
                     }
                     break
                 }
 
                 case 'criar': {
                     const prompt = args.join(' ')
-                    if (!prompt) return reply('❌ Descreva a imagem que deseja gerar.\n\n📌 *Exemplo:* _/criar um gato de óculos escuros andando de skate_')
+                    if (!prompt) return reply('❌ Descreva a imagem que deseja gerar.\n\n📌 Exemplo: */criar um guerreiro espartano no estilo anime cyberpunk*')
 
-                    reply('🎨 *A inteligência artificial está desenhando a sua imagem...* ⏳')
+                    reply('🎨 *O Gemini está desenhando a sua imagem...* ⏳')
                     try {
-                        // Codifica o texto do usuário para formato de URL válida
-                        const promptFormatado = encodeURIComponent(prompt)
-                        
-                        // URL da API estável e gratuita do Pollinations com filtros avançados
-                        const urlImagem = `https://image.pollinations.ai/p/${promptFormatado}?width=1024&height=1024&nologo=true&enhance=true`
+                        const GEMINI_API_KEY = 'AIzaSyD7zlHbgOxwA-El2DLmbmYsTuzc4Bw2lK8'
+                        const urlGeminiImage = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-image:generateImages?key=${GEMINI_API_KEY}`
 
-                        // Baixa os bytes da imagem diretamente usando axios como um Buffer
-                        const { data } = await axios.get(urlImagem, { responseType: 'arraybuffer' })
+                        const corpoDados = {
+                            prompt: prompt,
+                            numberOfImages: 1,
+                            outputMimeType: "image/jpeg",
+                            aspectRatio: "1:1"
+                        }
 
-                        if (!data) return reply('❌ Falha ao receber os dados da imagem gerada.')
+                        const { data } = await axios.post(urlGeminiImage, corpoDados, {
+                            headers: { 'Content-Type': 'application/json' }
+                        })
 
-                        // Envia a imagem baixada direto para o cliente no WhatsApp
-                        await sock.sendMessage(from, {
-                            image: Buffer.from(data),
-                            caption: `🎨 *IMAGEM GERADA COM SUCESSO*\n\n✨ *Pedido:* _${prompt}_`
+                        const base64Image = data.generatedImages?.[0]?.image?.imageBytes
+                        if (!base64Image) return reply('❌ A IA não conseguiu gerar esta imagem. Tente usar outros termos descritivos.')
+
+                        const bufferImg = Buffer.from(base64Image, 'base64')
+                        await sock.sendMessage(from, { 
+                            image: bufferImg, 
+                            caption: `🎨 *IMAGEM GERADA - ${T.nome}*\n\n✨ *Prompt:* _${prompt}_\n🤖 _Modelo: Gemini 3 Flash Image_` 
                         }, { quoted: msg })
-
                     } catch (err) {
-                        console.log("Erro Gerar Imagem:", err.message)
-                        reply('❌ Ocorreu um erro ao processar o servidor de imagens. Tente novamente mais tarde.')
+                        reply('❌ Erro ao processar imagem. Verifique se o prompt não viola os termos de segurança da API.')
                     }
                     break
                 }
 
                 case 'modificar': {
+                    const promptAlteracao = args.join(' ')
+                    const type = msg.message.extendedTextMessage?.contextInfo?.quotedMessage ? Object.keys(msg.message.extendedTextMessage.contextInfo.quotedMessage)[0] : Object.keys(msg.message)[0]
+                    const isQuotedImage = type === 'imageMessage' || (type === 'extendedTextMessage' && msg.message.extendedTextMessage.contextInfo.quotedMessage?.imageMessage)
+
+                    if (!isQuotedImage && type !== 'imageMessage') {
+                        return reply('⚠️ Você precisa *marcar uma imagem* ou enviar uma foto junta e digitar o comando para modificá-la!\n\n📌 Exemplo: */modificar adicione asas de fogo azuis*')
+                    }
+                    if (!promptAlteracao) return reply('❌ Diga o que a IA deve alterar ou adicionar na imagem.')
+
+                    reply('🪄 *A IA Nano Banana Pro está editando a imagem...* ⏳')
                     try {
                         const { downloadContentFromMessage } = require('@whiskeysockets/baileys')
+                        const GEMINI_API_KEY = 'AIzaSyD7zlHbgOxwA-El2DLmbmYsTuzc4Bw2lK8'
+                        const urlPro = `https://generativelanguage.googleapis.com/v1beta/models/nano-banana-pro:editImage?key=${GEMINI_API_KEY}`
 
-                        const promptAlteracao = args.join(' ')
-                        if (!promptAlteracao) return reply('❌ Diga o que a IA deve alterar ou adicionar na imagem.\n\n📌 *Exemplo:* _Marque uma foto e digite: /modificar adicione asas de anjo cyberpunk_')
+                        const imgMessage = msg.message.imageMessage || msg.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage
+                        const stream = await downloadContentFromMessage(imgMessage, 'image')
+                        let buffer = Buffer.from([])
+                        for await (const chunk of stream) { buffer = Buffer.concat([buffer, chunk]) }
 
-                        // Captura a imagem marcada ou direta
-                        const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage
-                        const mensagemReal = quoted || msg.message
+                        const base64Original = buffer.toString('base64')
 
-                        const infoImagem = mensagemReal?.imageMessage || mensagemReal?.viewOnceMessage?.message?.imageMessage || mensagemReal?.viewOnceMessageV2?.message?.imageMessage
-
-                        if (!infoImagem) {
-                            return reply('⚠️ Você precisa *marcar uma imagem* ou enviar uma foto junto com o comando!')
-                        }
-
-                        reply('🪄 *A IA está processando e redesenhando a sua imagem...* ⏳')
-
-                        // Baixa a imagem do WhatsApp direto para a memória (Buffer)
-                        const stream = await downloadContentFromMessage(infoImagem, 'image')
-                        let bufferOriginal = Buffer.from([])
-                        for await (const chunk of stream) {
-                            bufferOriginal = Buffer.concat([bufferOriginal, chunk])
-                        }
-
-                        // Codifica em Base64 para passar de forma limpa na requisição
-                        const base64Original = bufferOriginal.toString('base64')
-
-                        // Monta o corpo da requisição para o motor de processamento Image-to-Image
                         const corpoDados = {
-                            image: `data:image/jpeg;base64,${base64Original}`,
                             prompt: promptAlteracao,
-                            style: "cyberpunk", // Estilo padrão para combinar com a Kratos-Store
-                            aspect_ratio: "1:1"
+                            image: { imageBytes: base64Original },
+                            numberOfImages: 1
                         }
 
-                        // Faz a requisição para o gateway alternativo estável de processamento gráfico
-                        const respostaIA = await axios.post('https://api.pixexid.com/v1/image-to-image', corpoDados, {
-                            headers: { 'Content-Type': 'application/json' },
-                            timeout: 25000 // Aguarda até 25 segundos para renderizar a arte
-                        }).catch(async () => {
-                            // Se a API principal falhar, usa o plano B (Fallback via Pollinations embutido)
-                            const promptFallback = encodeURIComponent(`${promptAlteracao} --style cyberpunk`)
-                            return await axios.get(`https://image.pollinations.ai/p/${promptFallback}?width=512&height=512&nologo=true`, { responseType: 'arraybuffer' })
+                        const { data } = await axios.post(urlPro, corpoDados, {
+                            headers: { 'Content-Type': 'application/json' }
                         })
 
-                        let bufferResultado
+                        const base64Modificada = data.generatedImages?.[0]?.image?.imageBytes
+                        if (!base64Modificada) return reply('❌ Não foi possível modificar esta imagem.')
 
-                        // Verifica se a resposta veio da API principal ou do plano B
-                        if (respostaIA.data instanceof Buffer) {
-                            bufferResultado = respostaIA.data
-                        } else if (respostaIA.data?.image_url) {
-                            // Se retornou um link pronto, baixa a imagem gerada
-                            const downloadFinal = await axios.get(respostaIA.data.image_url, { responseType: 'arraybuffer' })
-                            bufferResultado = Buffer.from(downloadFinal.data)
-                        } else if (respostaIA.data?.image_base64) {
-                            bufferResultado = Buffer.from(respostaIA.data.image_base64, 'base64')
-                        }
-
-                        if (!bufferResultado) {
-                            return reply('❌ Os servidores de IA estão instáveis no momento. Tente novamente em alguns instantes.')
-                        }
-
-                        // Envia a foto modificada de volta pro cliente no WhatsApp
-                        await sock.sendMessage(from, {
-                            image: bufferResultado,
-                            caption: `🪄 *IMAGEM MODIFICADA COM SUCESSO*\n\n✨ *Modificação:* _${promptAlteracao}_`
+                        const bufferResultado = Buffer.from(base64Modificada, 'base64')
+                        await sock.sendMessage(from, { 
+                            image: bufferResultado, 
+                            caption: `🪄 *IMAGEM MODIFICADA - ${T.nome}*\n\n✨ *Alteração:* _${promptAlteracao}_\n🤖 _Modelo: Nano Banana Pro (Composição e Estilo)_` 
                         }, { quoted: msg })
-
                     } catch (err) {
-                        console.log("Erro Real do Comando Modificar:", err.message)
-                        reply(`❌ *Erro no processamento:* _${err.message}_`)
+                        reply('❌ Erro ao tentar modificar a imagem via API.')
                     }
                     break
                 }
@@ -1133,52 +811,22 @@ case 'like': {
                     break
                 }
 
-                 case 'vips': {
-                    try {
-                        const path = require('path')
-                        const fs = require('fs')
+                case 'vips': {
+                    const listaVips = Object.keys(db.vips || {})
+                    const vipsAtivos = listaVips.filter(num => (db.vips[num].ids || 0) > 0)
 
-                        const listaVips = Object.keys(db.vips || {})
-                        // Filtra os VIPs que ainda possuem créditos/IDs ativos
-                        const vipsAtivos = listaVips.filter(num => (db.vips[num].ids || 0) > 0)
+                    if (vipsAtivos.length === 0) return reply("❌ *Nenhum usuário VIP cadastrado até o momento!*")
 
-                        if (vipsAtivos.length === 0) {
-                            return reply("❌ *Nenhum usuário VIP cadastrado ou ativo no momento.*")
-                        }
+                    let textoVips = `⭐ *LISTA DE USUÁRIOS VIP - KRATOS STORE* ⭐\n\nTotal de VIPs ativos: *${vipsAtivos.length}*\n\n`
+                    vipsAtivos.forEach((num, index) => {
+                        const creditos = db.vips[num].ids || 0
+                        textoVips += `${index + 1}. @${num} — *${creditos} IDs/Créditos*\n`
+                    })
 
-                        let textoVips = `⭐ *LISTA DE USUÁRIOS VIP - KRATOS STORE* ⭐\n\nTotal de VIPs ativos: *${vipsAtivos.length}*\n\n`
-                        
-                        vipsAtivos.forEach((num, index) => {
-                            const creditos = db.vips[num].ids || 0
-                            // Remove o @c.us do número para exibir de forma limpa
-                            const numeroLimpo = num.split('@')[0]
-                            textoVips += `${index + 1}. @${numeroLimpo} — *${creditos} IDs/Créditos*\n`
-                        })
-
-                        textoVips += `\n📌 _Para adquirir VIP ou consultar planos, fale com o suporte!_`
-
-                        // Define o caminho correto para o arquivo tabela.jpg na raiz do bot
-                        const caminhoTabela = path.join(process.cwd(), 'tabela.jpg')
-
-                        // Se a imagem existir na pasta, envia a foto com a lista de legenda
-                        if (fs.existsSync(caminhoTabela)) {
-                            await sock.sendMessage(from, {
-                                image: fs.readFileSync(caminhoTabela),
-                                caption: textoVips,
-                                mentions: vipsAtivos // Faz com que os @ mencionem os usuários de verdade
-                            }, { quoted: msg })
-                        } else {
-                            // Caso você esqueça de colocar a imagem na pasta, o bot envia só o texto para não travar
-                            await sock.sendMessage(from, { text: textoVips, mentions: vipsAtivos }, { quoted: msg })
-                        }
-
-                    } catch (err) {
-                        console.log("Erro no comando vips:", err.message)
-                        reply('❌ Erro ao listar os usuários VIP.')
-                    }
-                    break
+                    textoVips += `\n📌 _Para adquirir VIP ou consultar planos, fale com o suporte._`
+                    return reply(textoVips)
                 }
-           }
+            }
         } catch (e) { console.log(e) }
     })
 }
